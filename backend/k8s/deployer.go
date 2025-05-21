@@ -115,6 +115,11 @@ func DeployManifests(deployPath string, dryRun bool, dryRunStrategy string, work
 	}
 
 	discoveryClient := clientSet.Discovery()
+	// sanitize the deployPath to avoid directory traversal attacks
+	deployPath, err = filepath.Abs(deployPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get absolute path: %v", err)
+	}
 	files, err := os.ReadDir(deployPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read folder: %v", err)
@@ -795,6 +800,14 @@ func DeployHelmChart(req HelmDeploymentRequest, store bool) (*release.Release, e
 	repoFile := settings.RepositoryConfig
 	repoExists := false
 
+	repoFile = strings.TrimSpace(repoFile)
+	if repoFile == "" {
+		return nil, fmt.Errorf("repository file path is empty")
+	}
+	// if it contains ..
+	if strings.Contains(repoFile, "..") {
+		return nil, fmt.Errorf("repository file path contains invalid characters")
+	}
 	if _, err := os.Stat(repoFile); err == nil {
 		b, err := os.ReadFile(repoFile)
 		if err == nil {
