@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -197,12 +198,13 @@ func DeployHandler(c *gin.Context) {
 		return
 	}
 
-	if request.RepoURL == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "repo_url is required"})
+	// Sanitize and validate repo URL
+	if !strings.HasPrefix(request.RepoURL, "https://") || !strings.HasSuffix(request.RepoURL, ".git") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid repo_url: must be a valid HTTPS git URL ending in .git"})
 		return
 	}
 
-	// Extract query parameters
+	// Extract and sanitize query parameters
 	dryRun := c.Query("dryRun") == "true"
 	dryRunStrategy := c.Query("dryRunStrategy")
 	gitUsername := c.Query("git_username")
@@ -215,30 +217,42 @@ func DeployHandler(c *gin.Context) {
 		branch = "main" // Default branch
 	}
 
+	// Validate branch name
+	validBranch := regexp.MustCompile(`^[\w\-/\.]+$`)
+	if !validBranch.MatchString(branch) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid branch name"})
+		return
+	}
+
+	// Validate folder path to avoid directory traversal
+	if strings.Contains(request.FolderPath, "..") || filepath.IsAbs(request.FolderPath) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid folder path"})
+		return
+	}
+
 	// If workload label is not provided, use the GitHub project name from the repo URL
 	if request.WorkloadLabel == "" {
-		// Extract project name from repo URL
-		// Example: from https://github.com/org/project.git to project
 		repoBase := filepath.Base(request.RepoURL)
 		projectName := strings.TrimSuffix(repoBase, filepath.Ext(repoBase))
 		request.WorkloadLabel = projectName
 	}
 
-	// Save deployment configuration in Redis for webhook usage
+	// Save deployment configuration in Redis
 	redis.SetFilePath(request.FolderPath)
 	redis.SetRepoURL(request.RepoURL)
 	redis.SetBranch(branch)
 	redis.SetGitToken(gitToken)
-	redis.SetWorkloadLabel(request.WorkloadLabel) // Store workload label in Redis
+	redis.SetWorkloadLabel(request.WorkloadLabel)
 
+	// Clone the repository
 	tempDir := fmt.Sprintf("/tmp/%d", time.Now().Unix())
 	cloneURL := request.RepoURL
 
 	if gitUsername != "" && gitToken != "" {
-		cloneURL = fmt.Sprintf("https://%s:%s@%s", gitUsername, gitToken, request.RepoURL[8:])
+		repoHost := strings.TrimPrefix(request.RepoURL, "https://")
+		cloneURL = fmt.Sprintf("https://%s:%s@%s", gitUsername, gitToken, repoHost)
 	}
 
-	// Clone the repository
 	cmd := exec.Command("git", "clone", "-b", branch, cloneURL, tempDir)
 	if err := cmd.Run(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to clone repo", "details": err.Error()})
@@ -246,6 +260,7 @@ func DeployHandler(c *gin.Context) {
 	}
 	defer os.RemoveAll(tempDir)
 
+	// Determine deployment path
 	deployPath := tempDir
 	if request.FolderPath != "" {
 		deployPath = filepath.Join(tempDir, request.FolderPath)
@@ -256,22 +271,20 @@ func DeployHandler(c *gin.Context) {
 		return
 	}
 
-	// Deploy the manifests with workload label
+	// Deploy the manifests
 	deploymentTree, err := k8s.DeployManifests(deployPath, dryRun, dryRunStrategy, request.WorkloadLabel)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Deployment failed", "details": err.Error()})
 		return
 	}
 
-	// Store deployment data in ConfigMap if it's created by the user
+	// If user opted to store the deployment
 	if createdByMe {
-		// Create timestamp for deployment ID if not provided
 		timestamp := time.Now().Format("20060102150405")
 		if deploymentID == "" {
 			deploymentID = fmt.Sprintf("github-%s-%s", filepath.Base(request.RepoURL), timestamp)
 		}
 
-		// Prepare deployment data for ConfigMap
 		deploymentData := map[string]string{
 			"id":               deploymentID,
 			"timestamp":        time.Now().Format(time.RFC3339),
@@ -281,21 +294,17 @@ func DeployHandler(c *gin.Context) {
 			"dry_run":          fmt.Sprintf("%v", dryRun),
 			"dry_run_strategy": dryRunStrategy,
 			"created_by_me":    "true",
-			"workload_label":   request.WorkloadLabel, // Store workload label in deployment data
+			"workload_label":   request.WorkloadLabel,
 		}
 
-		// Convert deployment tree to JSON string for storage
 		deploymentTreeJSON, _ := json.Marshal(deploymentTree)
 		deploymentData["deployment_tree"] = string(deploymentTreeJSON)
 
-		// Get existing deployments
 		existingDeployments, err := k8s.GetGithubDeployments("its1")
 		if err != nil {
-			// If error, start with empty deployments array
 			existingDeployments = []any{}
 		}
 
-		// Add new deployment to existing ones
 		newDeployment := map[string]interface{}{
 			"id":             deploymentID,
 			"timestamp":      deploymentData["timestamp"],
@@ -304,13 +313,12 @@ func DeployHandler(c *gin.Context) {
 			"branch":         deploymentData["branch"],
 			"dry_run":        deploymentData["dry_run"],
 			"created_by_me":  deploymentData["created_by_me"],
-			"workload_label": deploymentData["workload_label"], // Include workload label
+			"workload_label": deploymentData["workload_label"],
 		}
 
 		existingDeployments = append(existingDeployments, newDeployment)
 		deploymentsJSON, _ := json.Marshal(existingDeployments)
 
-		// Store in ConfigMap
 		cmData := map[string]string{
 			"deployments": string(deploymentsJSON),
 		}
@@ -344,8 +352,9 @@ func DeployHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, response)
 }
+
 func GitHubWebhookHandler(c *gin.Context) {
-	// Create a wrapper for the nested JSON structure
+	// Parse the wrapper payload structure
 	var webhookWrapper struct {
 		Payload string `json:"payload"`
 	}
@@ -355,52 +364,66 @@ func GitHubWebhookHandler(c *gin.Context) {
 		return
 	}
 
-	// Parse the inner payload JSON string
+	// Parse inner payload
 	var request GitHubWebhookPayload
 	if err := json.Unmarshal([]byte(webhookWrapper.Payload), &request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse webhook payload", "details": err.Error()})
 		return
 	}
 
-	// Get deployment configuration from Redis
+	// Retrieve folder path from Redis
 	folderPath, err := redis.GetFilePath()
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "No deployment configured for this repository"})
 		return
 	}
 
-	// Get the configured branch from Redis
-	storedBranch, err := redis.GetBranch()
-	if err != nil {
-		storedBranch = "main" // Default branch if not set
+	// Validate folder path
+	if strings.Contains(folderPath, "..") || filepath.IsAbs(folderPath) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid folder path"})
+		return
 	}
 
-	// Check if the webhook is for the configured branch
+	// Get stored branch from Redis
+	storedBranch, err := redis.GetBranch()
+	if err != nil {
+		storedBranch = "main"
+	}
+
+	// Validate branch
+	validBranch := regexp.MustCompile(`^[\w\-/\.]+$`)
+	if !validBranch.MatchString(storedBranch) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid stored branch in configuration"})
+		return
+	}
+
+	// Extract pushed branch from webhook ref
 	branchFromRef := strings.TrimPrefix(request.Ref, "refs/heads/")
 	if branchFromRef != storedBranch {
 		c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("Ignoring push to branch '%s'. Configured branch is '%s'", branchFromRef, storedBranch)})
 		return
 	}
 
-	// Get workload label from Redis
+	// Get workload label or derive from repo name
 	workloadLabel, err := redis.GetWorkloadLabel()
 	if err != nil || workloadLabel == "" {
-		// If no workload label is stored, extract project name from repository URL
 		repoUrl := request.Repository.CloneURL
+		if !strings.HasPrefix(repoUrl, "https://") || !strings.HasSuffix(repoUrl, ".git") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid repository URL in webhook payload"})
+			return
+		}
 		repoBase := filepath.Base(repoUrl)
 		projectName := strings.TrimSuffix(repoBase, filepath.Ext(repoBase))
 		workloadLabel = projectName
 	}
 
-	// Check if any changes occurred in the specified folder path
+	// Determine if relevant changes occurred
 	relevantChanges := false
 	var changedFiles []string
 
-	// If folderPath is empty, any change is relevant
 	if folderPath == "" {
 		relevantChanges = len(request.Commits) > 0
 	} else {
-		// Check each commit for changes in the relevant folder
 		for _, commit := range request.Commits {
 			for _, file := range commit.Modified {
 				if strings.HasPrefix(file, folderPath) {
@@ -416,24 +439,20 @@ func GitHubWebhookHandler(c *gin.Context) {
 		return
 	}
 
-	// Get repository URL from webhook payload
+	// Clone the repository
 	repoUrl := request.Repository.CloneURL
-	tempDir := fmt.Sprintf("/tmp/%d", time.Now().Unix())
+	if !strings.HasPrefix(repoUrl, "https://") || !strings.HasSuffix(repoUrl, ".git") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid repository URL"})
+		return
+	}
 
-	// Get access token from Redis
 	gitToken, _ := redis.GetGitToken()
-
-	// Always use false for dryRun and empty string for dryRunStrategy
-	dryRun := false
-	dryRunStrategy := ""
-
-	// Clone the repository using token if available
 	cloneURL := repoUrl
 	if gitToken != "" {
 		cloneURL = fmt.Sprintf("https://x-access-token:%s@%s", gitToken, repoUrl[8:])
 	}
 
-	// Clone the specific branch
+	tempDir := fmt.Sprintf("/tmp/%d", time.Now().Unix())
 	cmd := exec.Command("git", "clone", "-b", storedBranch, cloneURL, tempDir)
 	if err := cmd.Run(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to clone repo", "details": err.Error()})
@@ -441,6 +460,7 @@ func GitHubWebhookHandler(c *gin.Context) {
 	}
 	defer os.RemoveAll(tempDir)
 
+	// Validate deployment path
 	deployPath := tempDir
 	if folderPath != "" {
 		deployPath = filepath.Join(tempDir, folderPath)
@@ -451,28 +471,25 @@ func GitHubWebhookHandler(c *gin.Context) {
 		return
 	}
 
-	// For webhook deployments, always deploy and store the data
+	// Deploy manifests
+	dryRun := false
+	dryRunStrategy := ""
 	deploymentTree, err := k8s.DeployManifests(deployPath, dryRun, dryRunStrategy, workloadLabel)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Deployment failed", "details": err.Error()})
 		return
 	}
 
-	// Create timestamp for deployment ID
+	// Prepare and store deployment data
 	timestamp := time.Now().Format("20060102150405")
 	deploymentID := fmt.Sprintf("github-webhook-%s-%s", filepath.Base(repoUrl), timestamp)
-
-	// Convert deployment tree to JSON string for storage
 	deploymentTreeJSON, _ := json.Marshal(deploymentTree)
 
-	// Get existing deployments
 	existingDeployments, err := k8s.GetGithubDeployments("its1")
 	if err != nil {
-		// If error, start with empty deployments array
 		existingDeployments = []any{}
 	}
 
-	// Add new deployment to existing ones
 	newDeployment := map[string]interface{}{
 		"id":             deploymentID,
 		"timestamp":      time.Now().Format(time.RFC3339),
@@ -488,7 +505,6 @@ func GitHubWebhookHandler(c *gin.Context) {
 	existingDeployments = append(existingDeployments, newDeployment)
 	deploymentsJSON, _ := json.Marshal(existingDeployments)
 
-	// Store in ConfigMap
 	cmData := map[string]string{
 		"deployments":          string(deploymentsJSON),
 		"last_deployment_tree": string(deploymentTreeJSON),
@@ -508,6 +524,7 @@ func GitHubWebhookHandler(c *gin.Context) {
 		"workload_label":  workloadLabel,
 	})
 }
+
 
 // createHelmActionConfig initializes the Helm action configuration using WDS1 context
 func CreateHelmActionConfig(namespace string) (*action.Configuration, error) {
