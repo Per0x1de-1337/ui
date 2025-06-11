@@ -8,6 +8,7 @@ import (
 	"github.com/kubestellar/ui/auth"
 	"github.com/kubestellar/ui/middleware"
 	"github.com/kubestellar/ui/models"
+	"github.com/kubestellar/ui/telemetry"
 	"github.com/kubestellar/ui/utils"
 )
 
@@ -69,6 +70,7 @@ func LoginHandler(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&loginData); err != nil {
+		telemetry.HTTPErrorCounter.WithLabelValues("POST", "/login", "400").Inc()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 		return
 	}
@@ -78,6 +80,7 @@ func LoginHandler(c *gin.Context) {
 
 	user, err := models.AuthenticateUser(loginData.Username, loginData.Password)
 	if user == nil || err != nil {
+		telemetry.HTTPErrorCounter.WithLabelValues("POST", "/login", "401").Inc()
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
 		return
 	}
@@ -85,10 +88,11 @@ func LoginHandler(c *gin.Context) {
 	// Fixed: Pass both username and permissions to GenerateToken
 	token, err := utils.GenerateToken(loginData.Username, user.Permissions)
 	if err != nil {
+		telemetry.HTTPErrorCounter.WithLabelValues("POST", "/login", "500").Inc()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error generating token"})
 		return
 	}
-
+	telemetry.TotalHTTPRequests.WithLabelValues("POST", "/login", "200").Inc()
 	c.JSON(http.StatusOK, gin.H{
 		"token": token,
 		"user": gin.H{
@@ -102,16 +106,18 @@ func LoginHandler(c *gin.Context) {
 func CurrentUserHandler(c *gin.Context) {
 	username, exists := c.Get("username")
 	if !exists {
+		telemetry.HTTPErrorCounter.WithLabelValues("GET", "/api/me", "401").Inc()
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
 		return
 	}
 
 	permissions, exists := c.Get("permissions")
 	if !exists {
+		telemetry.HTTPErrorCounter.WithLabelValues("GET", "/api/me", "500").Inc()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Permissions not found"})
 		return
 	}
-
+	telemetry.TotalHTTPRequests.WithLabelValues("GET", "/api/me", "200").Inc()
 	c.JSON(http.StatusOK, gin.H{
 		"username":    username,
 		"permissions": permissions,
@@ -122,10 +128,11 @@ func CurrentUserHandler(c *gin.Context) {
 func ListUsersHandler(c *gin.Context) {
 	users, err := auth.ListUsersWithPermissions()
 	if err != nil {
+		telemetry.HTTPErrorCounter.WithLabelValues("GET", "/api/admin/users", "500").Inc()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve users"})
 		return
 	}
-
+	telemetry.TotalHTTPRequests.WithLabelValues("GET", "/api/admin/users", "200").Inc()
 	c.JSON(http.StatusOK, gin.H{"users": users})
 }
 
@@ -138,19 +145,21 @@ func CreateUserHandler(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&userData); err != nil {
+		telemetry.HTTPErrorCounter.WithLabelValues("POST", "/api/admin/users", "400").Inc()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data"})
 		return
 	}
 
 	err := auth.AddOrUpdateUser(userData.Username, userData.Password, userData.Permissions)
 	if err != nil {
+		telemetry.HTTPErrorCounter.WithLabelValues("POST", "/api/admin/users", "500").Inc()
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to create user",
 			"details": err.Error(),
 		})
 		return
 	}
-
+	telemetry.TotalHTTPRequests.WithLabelValues("POST", "/api/admin/users", "201").Inc()
 	c.JSON(http.StatusCreated, gin.H{
 		"message":  "User created successfully",
 		"username": userData.Username,
@@ -167,6 +176,7 @@ func UpdateUserHandler(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&userData); err != nil {
+		telemetry.HTTPErrorCounter.WithLabelValues("PUT", "/api/admin/users/"+username, "400").Inc()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data"})
 		return
 	}
@@ -174,11 +184,13 @@ func UpdateUserHandler(c *gin.Context) {
 	// Get existing user data
 	userConfig, exists, err := auth.GetUserByUsername(username)
 	if err != nil {
+		telemetry.HTTPErrorCounter.WithLabelValues("PUT", "/api/admin/users/"+username, "500").Inc()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve user"})
 		return
 	}
 
 	if !exists {
+		telemetry.HTTPErrorCounter.WithLabelValues("PUT", "/api/admin/users/"+username, "404").Inc()
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
@@ -197,13 +209,14 @@ func UpdateUserHandler(c *gin.Context) {
 	// Save updated user
 	err = auth.AddOrUpdateUser(username, userConfig.Password, userConfig.Permissions)
 	if err != nil {
+		telemetry.HTTPErrorCounter.WithLabelValues("PUT", "/api/admin/users/"+username, "500").Inc()
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to update user",
 			"details": err.Error(),
 		})
 		return
 	}
-
+	telemetry.TotalHTTPRequests.WithLabelValues("PUT", "/api/admin/users/"+username, "200").Inc()
 	c.JSON(http.StatusOK, gin.H{
 		"message":  "User updated successfully",
 		"username": username,
@@ -216,13 +229,14 @@ func DeleteUserHandler(c *gin.Context) {
 
 	err := auth.RemoveUser(username)
 	if err != nil {
+		telemetry.HTTPErrorCounter.WithLabelValues("DELETE", "/api/admin/users/"+username, "500").Inc()
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to delete user",
 			"details": err.Error(),
 		})
 		return
 	}
-
+	telemetry.TotalHTTPRequests.WithLabelValues("DELETE", "/api/admin/users/"+username, "200").Inc()
 	c.JSON(http.StatusOK, gin.H{
 		"message":  "User deleted successfully",
 		"username": username,

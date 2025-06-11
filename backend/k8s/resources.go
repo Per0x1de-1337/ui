@@ -18,6 +18,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"log"
 	"net/http"
+	"github.com/kubestellar/ui/telemetry"
 	"reflect"
 	"sort"
 	"strings"
@@ -38,6 +39,7 @@ func getGVR(discoveryClient discovery.DiscoveryInterface, resourceKind string) (
 			if strings.EqualFold(resource.Kind, resourceKind) {
 				gv, err := schema.ParseGroupVersion(resourceGroup.GroupVersion)
 				if err != nil {
+					telemetry.K8sClientErrorCounter.WithLabelValues("getGVR", "parse_group_version", "500").Inc()
 					return schema.GroupVersionResource{}, false, err
 				}
 				isNamespaced := resource.Namespaced
@@ -45,6 +47,7 @@ func getGVR(discoveryClient discovery.DiscoveryInterface, resourceKind string) (
 			} else if strings.EqualFold(resource.Name, resourceKind) {
 				gv, err := schema.ParseGroupVersion(resourceGroup.GroupVersion)
 				if err != nil {
+					telemetry.K8sClientErrorCounter.WithLabelValues("getGVR", "parse_group_version", "500").Inc()
 					return schema.GroupVersionResource{}, false, err
 				}
 				isNamespaced := resource.Namespaced
@@ -138,6 +141,7 @@ func EnsureNamespaceExistsAndAddLabel(dynamicClient dynamic.Interface, namespace
 
 	_, err = dynamicClient.Resource(nsGVR).Create(context.TODO(), nsObj, v1.CreateOptions{})
 	if err != nil {
+		telemetry.K8sClientErrorCounter.WithLabelValues("EnsureNamespaceExistsAndAddLabel", "create_namespace", "500").Inc()
 		return fmt.Errorf("failed to create namespace %s: %v", namespace, err)
 	}
 
@@ -360,6 +364,7 @@ func UpdateResource(c *gin.Context) {
 	discoveryClient := clientset.Discovery()
 	gvr, isNamespaced, err := getGVR(discoveryClient, resourceKind)
 	if err != nil {
+		telemetry.K8sClientErrorCounter.WithLabelValues("UpdateResource", "getGVR", "400").Inc()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported resource type"})
 		return
 	}

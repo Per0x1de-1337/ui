@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"k8s.io/client-go/rest"
+	"github.com/kubestellar/ui/telemetry"
 
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -31,12 +32,14 @@ func GetClientSet() (*kubernetes.Clientset, dynamic.Interface, error) {
 	// Load the kubeconfig file
 	config, err := clientcmd.LoadFromFile(kubeconfig)
 	if err != nil {
+		telemetry.K8sClientErrorCounter.WithLabelValues("GetClientSet", "load_kubeconfig", "500").Inc()
 		return nil, nil, fmt.Errorf("failed to load kubeconfig: %v", err)
 	}
 
 	// Use WDS1 context specifically
 	ctxContext := config.Contexts["wds1"]
 	if ctxContext == nil {
+		telemetry.K8sClientErrorCounter.WithLabelValues("GetClientSet", "find_context", "500").Inc()
 		return nil, nil, fmt.Errorf("failed to find context 'wds1'")
 	}
 
@@ -50,15 +53,18 @@ func GetClientSet() (*kubernetes.Clientset, dynamic.Interface, error) {
 
 	restConfig, err := clientConfig.ClientConfig()
 	if err != nil {
+		telemetry.K8sClientErrorCounter.WithLabelValues("GetClientSet", "create_restconfig", "500").Inc()
 		return nil, nil, fmt.Errorf("failed to create restconfig: %v", err)
 	}
 
 	clientset, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
+		telemetry.K8sClientErrorCounter.WithLabelValues("GetClientSet", "create_k8s_client", "500").Inc()
 		return nil, nil, fmt.Errorf("failed to create Kubernetes client: %v", err)
 	}
 	dynamicClient, err := dynamic.NewForConfig(restConfig)
 	if err != nil {
+		telemetry.K8sClientErrorCounter.WithLabelValues("GetClientSet", "create_dynamic_client", "500").Inc()
 		return nil, nil, fmt.Errorf("failed to create dynamic client: %v", err)
 	}
 
@@ -77,12 +83,14 @@ func GetClientSetWithContext(contextName string) (*kubernetes.Clientset, dynamic
 	// Load the kubeconfig file
 	config, err := clientcmd.LoadFromFile(kubeconfig)
 	if err != nil {
+		telemetry.K8sClientErrorCounter.WithLabelValues("GetClientSetWithContext", "load_kubeconfig", "500").Inc()
 		return nil, nil, fmt.Errorf("failed to load kubeconfig: %v", err)
 	}
 
 	// Check if the specified context exists
 	ctxContext := config.Contexts[contextName]
 	if ctxContext == nil {
+		telemetry.K8sClientErrorCounter.WithLabelValues("GetClientSetWithContext", "find_context", "500").Inc()
 		return nil, nil, fmt.Errorf("failed to find context '%s'", contextName)
 	}
 
@@ -96,15 +104,18 @@ func GetClientSetWithContext(contextName string) (*kubernetes.Clientset, dynamic
 
 	restConfig, err := clientConfig.ClientConfig()
 	if err != nil {
+		telemetry.K8sClientErrorCounter.WithLabelValues("GetClientSetWithContext", "create_restconfig", "500").Inc()
 		return nil, nil, fmt.Errorf("failed to create restconfig: %v", err)
 	}
 
 	clientset, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
+		telemetry.K8sClientErrorCounter.WithLabelValues("GetClientSetWithContext", "create_k8s_client", "500").Inc()
 		return nil, nil, fmt.Errorf("failed to create Kubernetes client: %v", err)
 	}
 	dynamicClient, err := dynamic.NewForConfig(restConfig)
 	if err != nil {
+		telemetry.K8sClientErrorCounter.WithLabelValues("GetClientSetWithContext", "create_dynamic_client", "500").Inc()
 		return nil, nil, fmt.Errorf("failed to create dynamic client: %v", err)
 	}
 
@@ -122,12 +133,14 @@ func GetClientSetWithConfigContext(contextName string) (*kubernetes.Clientset, *
 	// Load the kubeconfig file
 	config, err := clientcmd.LoadFromFile(kubeconfig)
 	if err != nil {
+		telemetry.K8sClientErrorCounter.WithLabelValues("GetClientSetWithConfigContext", "load_kubeconfig", "500").Inc()
 		return nil, nil, fmt.Errorf("failed to load kubeconfig: %v", err)
 	}
 
 	// Check if the specified context exists
 	ctxContext := config.Contexts[contextName]
 	if ctxContext == nil {
+		telemetry.K8sClientErrorCounter.WithLabelValues("GetClientSetWithConfigContext", "find_context", "500").Inc()
 		return nil, nil, fmt.Errorf("failed to find context '%s'", contextName)
 	}
 
@@ -141,11 +154,13 @@ func GetClientSetWithConfigContext(contextName string) (*kubernetes.Clientset, *
 
 	restConfig, err := clientConfig.ClientConfig()
 	if err != nil {
+		telemetry.K8sClientErrorCounter.WithLabelValues("GetClientSetWithConfigContext", "create_restconfig", "500").Inc()
 		return nil, nil, fmt.Errorf("failed to create restconfig: %v", err)
 	}
 
 	clientset, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
+		telemetry.K8sClientErrorCounter.WithLabelValues("GetClientSetWithConfigContext", "create_k8s_client", "500").Inc()
 		return nil, nil, fmt.Errorf("failed to create Kubernetes client: %v", err)
 	}
 

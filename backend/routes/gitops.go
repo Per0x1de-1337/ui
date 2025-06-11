@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kubestellar/ui/api"
 	"github.com/kubestellar/ui/k8s"
+	"github.com/kubestellar/ui/telemetry"
 	"github.com/kubestellar/ui/redis"
 )
 
@@ -79,6 +80,7 @@ func setupGitHubRoutes(router *gin.Engine) {
 			deploymentID := c.Param("id")
 			deployments, err := k8s.GetGithubDeployments("its1")
 			if err != nil {
+				telemetry.HTTPErrorCounter.WithLabelValues("GET", "/api/deployments/github/:id", "500").Inc()	
 				c.JSON(http.StatusInternalServerError, gin.H{
 					"error":   "Failed to retrieve deployments",
 					"details": err.Error(),
@@ -98,7 +100,7 @@ func setupGitHubRoutes(router *gin.Engine) {
 					}
 				}
 			}
-
+			telemetry.HTTPErrorCounter.WithLabelValues("GET", "/api/deployments/github/:id", "404").Inc()
 			c.JSON(http.StatusNotFound, gin.H{
 				"error": "Deployment not found",
 				"id":    deploymentID,
@@ -113,6 +115,7 @@ func setupGitHubRoutes(router *gin.Engine) {
 		github.GET("/webhook", func(c *gin.Context) {
 			deployments, err := k8s.GetGithubDeployments("its1")
 			if err != nil {
+				telemetry.HTTPErrorCounter.WithLabelValues("GET", "/api/deployments/github/webhook", "500").Inc()
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}
@@ -125,7 +128,7 @@ func setupGitHubRoutes(router *gin.Engine) {
 					}
 				}
 			}
-
+			telemetry.HTTPErrorCounter.WithLabelValues("GET", "/api/deployments/github/webhook", "200").Inc()
 			c.JSON(http.StatusOK, gin.H{
 				"deployments": webhookDeployments,
 				"count":       len(webhookDeployments),
@@ -136,6 +139,7 @@ func setupGitHubRoutes(router *gin.Engine) {
 		github.GET("/manual", func(c *gin.Context) {
 			deployments, err := k8s.GetGithubDeployments("its1")
 			if err != nil {
+				telemetry.HTTPErrorCounter.WithLabelValues("GET", "/api/deployments/github/manual", "500").Inc()
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}
@@ -148,7 +152,7 @@ func setupGitHubRoutes(router *gin.Engine) {
 					}
 				}
 			}
-
+			telemetry.HTTPErrorCounter.WithLabelValues("GET", "/api/deployments/github/manual", "200").Inc()
 			c.JSON(http.StatusOK, gin.H{
 				"deployments": manualDeployments,
 				"count":       len(manualDeployments),
@@ -182,7 +186,7 @@ func setupWebhookRoutes(router *gin.Engine) {
 			if workloadLabel, err := redis.GetWorkloadLabel(); err == nil {
 				config["workload_label"] = workloadLabel
 			}
-
+			telemetry.TotalHTTPRequests.WithLabelValues("GET", "/api/webhooks/config", "200").Inc()
 			c.JSON(http.StatusOK, gin.H{
 				"webhook_config": config,
 				"configured":     len(config) > 0,
@@ -199,6 +203,7 @@ func setupWebhookRoutes(router *gin.Engine) {
 			}
 
 			if err := c.ShouldBindJSON(&config); err != nil {
+				telemetry.HTTPErrorCounter.WithLabelValues("POST", "/api/webhooks/config", "400").Inc()
 				c.JSON(http.StatusBadRequest, gin.H{
 					"error":   "Invalid configuration",
 					"details": err.Error(),
@@ -232,13 +237,14 @@ func setupWebhookRoutes(router *gin.Engine) {
 			}
 
 			if len(errors) > 0 {
+				telemetry.HTTPErrorCounter.WithLabelValues("POST", "/api/webhooks/config", "500").Inc()
 				c.JSON(http.StatusInternalServerError, gin.H{
 					"error":   "Failed to save configuration",
 					"details": errors,
 				})
 				return
 			}
-
+			telemetry.TotalHTTPRequests.WithLabelValues("POST", "/api/webhooks/config", "200").Inc()
 			c.JSON(http.StatusOK, gin.H{
 				"message": "Webhook configuration saved successfully",
 				"config":  config,
@@ -264,6 +270,7 @@ func setupValidationRoutes(router *gin.Engine) {
 			}
 
 			if err := c.ShouldBindJSON(&req); err != nil {
+				telemetry.HTTPErrorCounter.WithLabelValues("POST", "/api/validate/repository", "400").Inc()
 				c.JSON(http.StatusBadRequest, gin.H{
 					"error":   "Invalid request",
 					"details": err.Error(),
@@ -278,6 +285,7 @@ func setupValidationRoutes(router *gin.Engine) {
 			// Test repository access without deploying
 			files, err := api.FetchGitHubYAMLs(req.RepoURL, req.FolderPath, req.Branch, "", req.GitToken)
 			if err != nil {
+				telemetry.HTTPErrorCounter.WithLabelValues("POST", "/api/validate/repository", "400").Inc()
 				c.JSON(http.StatusBadRequest, gin.H{
 					"valid":   false,
 					"error":   "Repository access failed",
@@ -285,7 +293,7 @@ func setupValidationRoutes(router *gin.Engine) {
 				})
 				return
 			}
-
+			telemetry.TotalHTTPRequests.WithLabelValues("POST", "/api/validate/repository", "200").Inc()
 			c.JSON(http.StatusOK, gin.H{
 				"valid":      true,
 				"message":    "Repository access successful",
@@ -304,6 +312,7 @@ func setupValidationRoutes(router *gin.Engine) {
 		validation.GET("/kubernetes", func(c *gin.Context) {
 			_, err := k8s.GetGithubDeployments("its1")
 			if err != nil {
+				telemetry.HTTPErrorCounter.WithLabelValues("GET", "/api/validate/kubernetes", "503").Inc()
 				c.JSON(http.StatusServiceUnavailable, gin.H{
 					"valid":   false,
 					"error":   "Kubernetes connectivity failed",
@@ -311,7 +320,7 @@ func setupValidationRoutes(router *gin.Engine) {
 				})
 				return
 			}
-
+			telemetry.TotalHTTPRequests.WithLabelValues("GET", "/api/validate/kubernetes", "200").Inc()
 			c.JSON(http.StatusOK, gin.H{
 				"valid":   true,
 				"message": "Kubernetes connectivity successful",
@@ -321,6 +330,7 @@ func setupValidationRoutes(router *gin.Engine) {
 		// Test Redis connectivity
 		validation.GET("/redis", func(c *gin.Context) {
 			if err := redis.SetRepoURL("test-connection"); err != nil {
+				telemetry.HTTPErrorCounter.WithLabelValues("GET", "/api/validate/redis", "503").Inc()
 				c.JSON(http.StatusServiceUnavailable, gin.H{
 					"valid":   false,
 					"error":   "Redis connectivity failed",
@@ -328,7 +338,7 @@ func setupValidationRoutes(router *gin.Engine) {
 				})
 				return
 			}
-
+			telemetry.TotalHTTPRequests.WithLabelValues("GET", "/api/validate/redis", "200").Inc()
 			c.JSON(http.StatusOK, gin.H{
 				"valid":   true,
 				"message": "Redis connectivity successful",
@@ -345,12 +355,14 @@ func setupDeploymentHistoryRoutes(router *gin.Engine) {
 		history.GET("/github", func(c *gin.Context) {
 			config, err := k8s.GetConfigMapData("its1", k8s.GitHubConfigMapName)
 			if err != nil {
+				telemetry.HTTPErrorCounter.WithLabelValues("GET", "/api/deployments/github", "500").Inc()
 				c.JSON(http.StatusInternalServerError, gin.H{
 					"error":   "Failed to get GitHub deployment data",
 					"details": err.Error(),
 				})
 				return
 			}
+			telemetry.TotalHTTPRequests.WithLabelValues("GET", "/api/deployments/github", "200").Inc()
 			c.JSON(http.StatusOK, gin.H{
 				"config": config,
 				"type":   "github",
@@ -361,12 +373,14 @@ func setupDeploymentHistoryRoutes(router *gin.Engine) {
 		history.GET("/helm", func(c *gin.Context) {
 			config, err := k8s.GetConfigMapData("its1", k8s.HelmConfigMapName)
 			if err != nil {
+				telemetry.HTTPErrorCounter.WithLabelValues("GET", "/api/deployments/helm", "500").Inc()
 				c.JSON(http.StatusInternalServerError, gin.H{
 					"error":   "Failed to get Helm deployment data",
 					"details": err.Error(),
 				})
 				return
 			}
+			telemetry.TotalHTTPRequests.WithLabelValues("GET", "/api/deployments/helm", "200").Inc()
 			c.JSON(http.StatusOK, gin.H{
 				"config": config,
 				"type":   "helm",
@@ -377,12 +391,14 @@ func setupDeploymentHistoryRoutes(router *gin.Engine) {
 		history.GET("/manifests", func(c *gin.Context) {
 			config, err := k8s.GetConfigMapData("its1", "kubestellar-manifests")
 			if err != nil {
+				telemetry.HTTPErrorCounter.WithLabelValues("GET", "/api/deployments/manifests", "500").Inc()
 				c.JSON(http.StatusInternalServerError, gin.H{
 					"error":   "Failed to get manifests deployment data",
 					"details": err.Error(),
 				})
 				return
 			}
+			telemetry.TotalHTTPRequests.WithLabelValues("GET", "/api/deployments/manifests", "200").Inc()
 			c.JSON(http.StatusOK, gin.H{
 				"config": config,
 				"type":   "manifests",
@@ -402,6 +418,7 @@ func setupDeploymentHistoryRoutes(router *gin.Engine) {
 			if githubConfig, err := k8s.GetConfigMapData("its1", k8s.GitHubConfigMapName); err == nil {
 				result["github"] = githubConfig
 			} else {
+				telemetry.HTTPErrorCounter.WithLabelValues("GET", "/api/deployments/all", "500").Inc()
 				result["errors"] = append(result["errors"].([]string), fmt.Sprintf("GitHub: %v", err))
 			}
 
@@ -409,6 +426,7 @@ func setupDeploymentHistoryRoutes(router *gin.Engine) {
 			if helmConfig, err := k8s.GetConfigMapData("its1", k8s.HelmConfigMapName); err == nil {
 				result["helm"] = helmConfig
 			} else {
+				telemetry.HTTPErrorCounter.WithLabelValues("GET", "/api/deployments/all", "500").Inc()
 				result["errors"] = append(result["errors"].([]string), fmt.Sprintf("Helm: %v", err))
 			}
 
@@ -416,9 +434,10 @@ func setupDeploymentHistoryRoutes(router *gin.Engine) {
 			if manifestsConfig, err := k8s.GetConfigMapData("its1", "kubestellar-manifests"); err == nil {
 				result["manifests"] = manifestsConfig
 			} else {
+				telemetry.HTTPErrorCounter.WithLabelValues("GET", "/api/deployments/all", "500").Inc()
 				result["errors"] = append(result["errors"].([]string), fmt.Sprintf("Manifests: %v", err))
 			}
-
+			telemetry.TotalHTTPRequests.WithLabelValues("GET", "/api/deployments/all", "200").Inc()
 			c.JSON(http.StatusOK, result)
 		})
 	}

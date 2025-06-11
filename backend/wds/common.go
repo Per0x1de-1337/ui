@@ -9,9 +9,12 @@ import (
 	"k8s.io/client-go/tools/clientcmd/api"
 	"log"
 	"net/http"
+	"time"
 	"os"
 	"os/exec"
 	"strings"
+	"github.com/kubestellar/ui/telemetry"
+
 )
 
 /*
@@ -105,13 +108,16 @@ func SetWdsContextCookies(c *gin.Context) {
 	var request struct {
 		Context string `json:"context"`
 	}
+	startTime:=time.Now()
 	if err := c.ShouldBindJSON(&request); err != nil {
+		telemetry.HTTPErrorCounter.WithLabelValues("POST", "/wds/context", "400").Inc()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 		return
 	}
 
 	_, context, err := ListContexts()
 	if err != nil {
+		telemetry.HTTPErrorCounter.WithLabelValues("POST", "/wds/context", "500").Inc()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -123,6 +129,7 @@ func SetWdsContextCookies(c *gin.Context) {
 		}
 	}
 	if !isContextPresent {
+		telemetry.HTTPErrorCounter.WithLabelValues("POST", "/wds/context", "404").Inc()
 		msg := fmt.Sprintf("no context with %s present", request.Context)
 		c.JSON(http.StatusOK, gin.H{
 			"error":   msg,
@@ -132,6 +139,8 @@ func SetWdsContextCookies(c *gin.Context) {
 	}
 	c.SetCookie("ui-wds-context", request.Context, 3600, "/", "", false, true)
 	msg := fmt.Sprintf("switched to %s context", request.Context)
+	telemetry.TotalHTTPRequests.WithLabelValues("POST", "/wds/context", "200").Inc()
+	telemetry.HTTPRequestDuration.WithLabelValues("POST", "/wds/context").Observe(time.Since(startTime).Seconds())
 	c.JSON(http.StatusOK, gin.H{
 		"message":            msg,
 		"current-ui-context": request.Context,
@@ -141,19 +150,24 @@ func SetWdsContextCookies(c *gin.Context) {
 func GetWdsContextCookies(c *gin.Context) {
 	// currentContext : is system context (may be differnet from wds)
 	// TODO: improve this ListContexts function
+	startTime:= time.Now()
 	currentContext, context, err := ListContexts()
 	if err != nil {
+		telemetry.HTTPErrorCounter.WithLabelValues("GET", "/wds/context", "500").Inc()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	cookieContext, err := c.Cookie("ui-wds-context")
 	if err != nil {
+		telemetry.HTTPErrorCounter.WithLabelValues("GET", "/wds/context", "400").Inc()
 		if strings.Contains("wds", currentContext) {
 			cookieContext = currentContext // Default to Kubernetes API context
 		} else {
 			cookieContext = "wds1"
 		}
 	}
+	telemetry.TotalHTTPRequests.WithLabelValues("GET", "/wds/context", "200").Inc()
+	telemetry.HTTPRequestDuration.WithLabelValues("GET", "/wds/context").Observe(time.Since(startTime).Seconds())
 	c.JSON(http.StatusOK, gin.H{
 		"ui-wds-context":    cookieContext,
 		"system-context":    currentContext,
