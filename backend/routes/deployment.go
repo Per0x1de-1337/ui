@@ -33,10 +33,12 @@ func setupDeploymentRoutes(router *gin.Engine) {
 		var r = ctx.Request
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
+			telemetry.WebsocketConnectionsFailed.WithLabelValues("GET", "/api/wds/logs", "upgrade_error").Inc()
 			log.Println("Failed to upgrade connection:", err)
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": "Failed to upgrade to WebSocket"})
 			return
 		}
+		telemetry.WebsocketConnectionUpgradedSuccess.WithLabelValues("GET", "/api/wds/logs", "upgrade_success").Inc()
 		//defer conn.Close()
 
 		clientset, err := wds.GetClientSetKubeConfig()

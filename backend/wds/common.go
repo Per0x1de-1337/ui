@@ -2,19 +2,19 @@ package wds
 
 import (
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/tools/clientcmd/api"
 	"log"
 	"net/http"
-	"time"
 	"os"
 	"os/exec"
 	"strings"
-	"github.com/kubestellar/ui/telemetry"
+	"time"
 
+	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
+	"github.com/kubestellar/ui/telemetry"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/tools/clientcmd/api"
 )
 
 /*
@@ -108,7 +108,7 @@ func SetWdsContextCookies(c *gin.Context) {
 	var request struct {
 		Context string `json:"context"`
 	}
-	startTime:=time.Now()
+	startTime := time.Now()
 	if err := c.ShouldBindJSON(&request); err != nil {
 		telemetry.HTTPErrorCounter.WithLabelValues("POST", "/wds/context", "400").Inc()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
@@ -150,7 +150,7 @@ func SetWdsContextCookies(c *gin.Context) {
 func GetWdsContextCookies(c *gin.Context) {
 	// currentContext : is system context (may be differnet from wds)
 	// TODO: improve this ListContexts function
-	startTime:= time.Now()
+	startTime := time.Now()
 	currentContext, context, err := ListContexts()
 	if err != nil {
 		telemetry.HTTPErrorCounter.WithLabelValues("GET", "/wds/context", "500").Inc()
@@ -186,9 +186,11 @@ func CreateWDSContextUsingCommand(w http.ResponseWriter, r *http.Request, c *gin
 	}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
+		telemetry.WebsocketConnectionsFailed.WithLabelValues("create-wds-context", "upgrade_error").Inc()
 		log.Println("WebSocket Upgrade Error:", err)
 		return
 	}
+	telemetry.WebsocketConnectionUpgradedSuccess.WithLabelValues("create-wds-context", "upgrade_success").Inc()
 	defer conn.Close()
 	if newWdsContext == "" {
 		msg := "context query must be present ?context=<your_new_context>"
@@ -233,6 +235,7 @@ func CreateWDSContextUsingCommand(w http.ResponseWriter, r *http.Request, c *gin
 	flexCmd := exec.Command("kubectl", "config", "use-context", kflexContextType)
 	output, err := flexCmd.CombinedOutput()
 	if err != nil {
+		telemetry.InstrumentKubectlCommand(flexCmd, "create-wds-context", kflexContextType)
 		message := fmt.Sprintf("Failed to execute kubectl command: %v\nOutput: %s", err.Error(), string(output))
 		writeMessage(conn, message)
 		return
@@ -270,6 +273,7 @@ func CreateWDSContextUsingCommand(w http.ResponseWriter, r *http.Request, c *gin
 	delCtxOutput, delCtxErr := delCtxCmd.CombinedOutput()
 
 	if delCtxErr != nil {
+		telemetry.InstrumentKubectlCommand(delCtxCmd, "delete-wds-context", newWdsContext)
 		writeMessage(conn, fmt.Sprintf("Warning: Failed to delete context '%s' (may not exist): %v\nOutput: %s", newWdsContext, delCtxErr, string(delCtxOutput)))
 	} else {
 		writeMessage(conn, fmt.Sprintf("Deleted context '%s' successfully", newWdsContext))

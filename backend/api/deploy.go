@@ -470,6 +470,7 @@ func DeployHandler(c *gin.Context) {
 	// Perform deployment with better error handling
 	deploymentTree, err := performDeployment(request, branch, gitUsername, gitToken, dryRun, dryRunStrategy)
 	if err != nil {
+		telemetry.GithubDeploymentsTotal.WithLabelValues("manual", "failure").Inc()
 		if apiErr, ok := err.(*APIError); ok {
 			c.JSON(apiErr.Code, gin.H{
 				"error":   apiErr.Message,
@@ -515,6 +516,7 @@ func DeployHandler(c *gin.Context) {
 			response["storage_details"] = "Deployment data stored in ConfigMap for future reference"
 		}
 	}
+	telemetry.GithubDeploymentsTotal.WithLabelValues("manual", "success").Inc()
 	telemetry.TotalHTTPRequests.WithLabelValues("POST", "/api/deploy", "200").Inc()
 	c.JSON(http.StatusOK, response)
 }

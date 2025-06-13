@@ -295,10 +295,11 @@ func HandleDetachmentWebSocket(c *gin.Context) {
 	// Upgrade the HTTP connection to a WebSocket connection
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
+		telemetry.WebsocketConnectionsFailed.WithLabelValues("detachment", "upgrade_error").Inc()
 		log.Printf("Failed to upgrade connection to WebSocket: %v", err)
 		return
 	}
-
+	telemetry.WebsocketConnectionUpgradedSuccess.WithLabelValues("detachment", clusterName).Inc()
 	// Create a new client
 	client := &WebSocketClient{
 		Conn:      conn,

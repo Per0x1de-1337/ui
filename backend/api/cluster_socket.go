@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/kubestellar/ui/telemetry"
 )
 
 // WebSocket upgrader
@@ -48,10 +49,11 @@ func WSOnboardingHandler(c *gin.Context) {
 	// Upgrade the HTTP connection to a WebSocket connection
 	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
+		telemetry.WebsocketConnectionsFailed.WithLabelValues("onboarding", "upgrade_error").Inc()
 		log.Printf("Failed to upgrade connection: %v", err)
 		return
 	}
-
+	telemetry.WebsocketConnectionUpgradedSuccess.WithLabelValues("onboarding", clusterName).Inc()
 	// Register the WebSocket client for the specific cluster
 	registerClient(clusterName, ws)
 	defer unregisterClient(clusterName, ws)
@@ -103,6 +105,7 @@ func WSOnboardingHandler(c *gin.Context) {
 			select {
 			case <-ticker.C:
 				if err := ws.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(10*time.Second)); err != nil {
+					telemetry.WebsocketConnectionsFailed.WithLabelValues("onboarding", "ping_error").Inc()
 					log.Printf("WebSocket ping failed: %v", err)
 					return
 				}
@@ -115,6 +118,7 @@ func WSOnboardingHandler(c *gin.Context) {
 		_, _, err := ws.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				telemetry.WebsocketConnectionsFailed.WithLabelValues("onboarding", "read_error").Inc()
 				log.Printf("WebSocket read error: %v", err)
 			}
 			break
@@ -177,7 +181,7 @@ func registerClient(clusterName string, ws *websocket.Conn) {
 		onboardingClients[clusterName] = make([]*websocket.Conn, 0)
 	}
 	onboardingClients[clusterName] = append(onboardingClients[clusterName], ws)
-
+	telemetry.WebsocketConnectionsActive.WithLabelValues("onboarding", clusterName).Inc()
 	log.Printf("New WebSocket client registered for cluster '%s'", clusterName)
 }
 
@@ -199,6 +203,7 @@ func unregisterClient(clusterName string, ws *websocket.Conn) {
 			delete(onboardingClients, clusterName)
 		}
 	}
+	telemetry.WebsocketConnectionsActive.WithLabelValues("onboarding", clusterName).Dec()
 
 	log.Printf("WebSocket client unregistered for cluster '%s'", clusterName)
 	ws.Close()

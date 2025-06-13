@@ -512,10 +512,12 @@ func LogWorkloads(c *gin.Context) {
 	// ALL VALIDATION DONE - Now safe to upgrade to WebSocket
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
+		telemetry.WebsocketConnectionUpgradedFailed.WithLabelValues("logWorkloads", "upgrade_error").Inc()
 		log.Println("WebSocket Upgrade Error:", err)
 		// DO NOT call c.JSON here - just return
 		return
 	}
+	telemetry.WebsocketConnectionUpgradedSuccess.WithLabelValues("logWorkloads", cookieContext).Inc()
 	defer conn.Close()
 
 	// Create informer factory filtering by name if provided

@@ -57,7 +57,8 @@ type LabelUpdateResult struct {
 // OnboardClusterHandler handles HTTP requests to onboard a new cluster
 func OnboardClusterHandler(c *gin.Context) {
 	// Check if this is a file upload, JSON payload, or just a cluster name
-	startTime:= time.Now()
+	startTime := time.Now()
+
 	contentType := c.GetHeader("Content-Type")
 	//
 	telemetry.HelloCounter.Inc()
@@ -71,7 +72,13 @@ func OnboardClusterHandler(c *gin.Context) {
 	if strings.Contains(contentType, "multipart/form-data") {
 		file, fileErr := c.FormFile("kubeconfig")
 		clusterName = c.PostForm("name")
-
+		defer func() {
+			duration := time.Since(startTime).Seconds()
+			if err := recover(); err != nil {
+				telemetry.ClusterOnboardingDuration.WithLabelValues(clusterName, "failed").Observe(duration)
+				panic(err)
+			}
+		}()
 		// If cluster name is provided but no file, try to use local kubeconfig
 		if clusterName != "" && (fileErr != nil || file == nil) {
 			useLocalKubeconfig = true
@@ -313,6 +320,7 @@ func approveClusterCSRs(clientset *kubernetes.Clientset, clusterName string) err
 		output, err := approveCmd.CombinedOutput()
 		if err != nil {
 			LogOnboardingEvent(clusterName, "Error", fmt.Sprintf("Failed to approve CSRs using kubectl: %v, %s", err, string(output)))
+			telemetry.InstrumentKubectlCommand(approveCmd, "approve-csr", "its1")
 
 			// Method 2: Fall back to SDK approach if kubectl fails
 			LogOnboardingEvent(clusterName, "Fallback", "Falling back to SDK approach for CSR approval")
@@ -471,7 +479,7 @@ func acceptManagedCluster(clientset *kubernetes.Clientset, clusterName string) e
 func GetClusterStatusHandler(c *gin.Context) {
 	mutex.Lock()
 	defer mutex.Unlock()
-	startTime:= time.Now()
+	startTime := time.Now()
 	var statuses []models.ClusterStatus
 	for cluster, status := range clusterStatuses {
 		statuses = append(statuses, models.ClusterStatus{

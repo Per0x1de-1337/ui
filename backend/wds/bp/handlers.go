@@ -13,12 +13,12 @@ import (
 	"github.com/kubestellar/kubestellar/api/control/v1alpha1"
 	"github.com/kubestellar/ui/log"
 	"github.com/kubestellar/ui/redis"
+	"github.com/kubestellar/ui/telemetry"
 	"github.com/kubestellar/ui/utils"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v2"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"github.com/kubestellar/ui/telemetry"
 )
 
 type StoredBindingPolicy struct {
@@ -55,12 +55,18 @@ type BindingPolicyWithStatus struct {
 func GetBindingPolicies(namespace string) ([]map[string]interface{}, error) {
 	log.LogDebug("retrieving all binding policies")
 	log.LogDebug("Using wds context: ", zap.String("wds_context", os.Getenv("wds_context")))
-
+	start := time.Now()
+	defer func() {
+		telemetry.BindingPolicyOperationDuration.WithLabelValues("GetAllBp").Observe(time.Since(start).Seconds())
+	}()
 	// Try to get from Redis cache first
 	cachedPolicies, err := redis.GetAllBindingPolicies()
 	if err != nil {
+		telemetry.BindingPolicyCacheMisses.WithLabelValues("get", "cache_miss").Inc()
 		log.LogWarn("failed to get binding policies from Redis cache", zap.Error(err))
 	} else if cachedPolicies != nil && len(cachedPolicies) > 0 {
+		telemetry.BindingPolicyCacheHits.WithLabelValues("redis").Inc()
+		telemetry.BindingPolicyOperationsTotal.WithLabelValues("get", "cache_hit").Inc()
 		log.LogInfo("Using cached binding policies from Redis", zap.Int("count", len(cachedPolicies)))
 		// Convert cached policies to response format
 		responseArray := make([]map[string]interface{}, len(cachedPolicies))
@@ -575,7 +581,6 @@ func GetAllBp(ctx *gin.Context) {
 
 // CreateBp creates a new BindingPolicy
 func CreateBp(ctx *gin.Context) {
-
 	log.LogInfo("starting Createbp handler",
 		zap.String("wds_context", os.Getenv("wds_context")))
 	// Check Content-Type header
