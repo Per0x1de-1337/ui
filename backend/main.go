@@ -8,14 +8,22 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/kubestellar/ui/routes"
+	"net/http"
+	_ "net/http/pprof"
 
+	"github.com/gin-gonic/gin"
 	"github.com/kubestellar/ui/api"
+	"github.com/kubestellar/ui/routes"
 	"go.uber.org/zap"
 )
 
 func main() {
+	go func() {
+		log.Println("Starting pprof server at :6060")
+		if err := http.ListenAndServe("localhost:6060", nil); err != nil {
+			log.Fatalf("pprof server failed: %v", err)
+		}
+	}()
 	initLogger()
 	router := gin.Default()
 
