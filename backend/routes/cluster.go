@@ -6,6 +6,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kubestellar/ui/api"
 	"github.com/kubestellar/ui/its/manual/handlers"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	// "github.com/prometheus/client_golang/prometheus"
 )
 
 func setupClusterRoutes(router *gin.Engine) {
@@ -27,7 +29,7 @@ func setupClusterRoutes(router *gin.Engine) {
 	router.POST("/clusters/onboard", api.OnboardClusterHandler)
 	router.GET("/clusters/status", api.GetClusterStatusHandler)
 	router.POST("/clusters/detach", api.DetachClusterHandler)
-
+	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 	// Logs and WebSocket
 	router.GET("/clusters/onboard/logs/:cluster", api.OnboardingLogsHandler)
 	router.GET("/clusters/detach/logs/:cluster", api.GetDetachmentLogsHandler)
