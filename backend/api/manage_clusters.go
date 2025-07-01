@@ -96,7 +96,7 @@ func GetManagedClustersHandler(c *gin.Context) {
 
 // GetManagedClusterHandler returns details of a specific managed cluster
 func GetManagedClusterHandler(c *gin.Context) {
-	startTime:= time.Now()
+	startTime := time.Now()
 	clusterName := c.Param("name")
 	if clusterName == "" {
 		telemetry.HTTPErrorCounter.WithLabelValues("GET", "/api/clusters/:name", "400").Inc()
