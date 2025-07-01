@@ -157,7 +157,7 @@ func setupHealthRoute(router *gin.Engine) {
 			"service":     "kubestellar-ui",
 			"version":     "1.0.0",
 			"timestamp":   time.Now().UTC().Format(time.RFC3339),
-			"uptime":      time.Since(startTime).String(),
+			"uptime":      time.Since(start).String(),
 			"environment": "debug",
 			"components": gin.H{
 				"database": gin.H{
