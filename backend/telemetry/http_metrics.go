@@ -14,7 +14,13 @@ var (
 		},
 		[]string{"method", "path", "status_code"},
 	)
-
+	TotalHTTPRequests1 = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "http_requests_total_1",
+			Help: "Total number of HTTP requests",
+		},
+		[]string{"method", "path", "status_code"},
+	)
 	HTTPRequestDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "http_request_duration_seconds",

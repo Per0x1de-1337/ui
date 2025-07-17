@@ -12,6 +12,7 @@ import (
 func init() {
 	fmt.Println("Registering Prometheus metrics..(((((((((((((((((((((((()))))))))))))))))))))))).")
 	prometheus.MustRegister(telemetry.TotalHTTPRequests)
+	// prometheus.MustRegister(telemetry.TotalHTTPRequests1)
 	prometheus.MustRegister(telemetry.HTTPRequestDuration)
 	prometheus.MustRegister(telemetry.HTTPErrorCounter)
 	prometheus.MustRegister(telemetry.BindingPolicyCacheHits)

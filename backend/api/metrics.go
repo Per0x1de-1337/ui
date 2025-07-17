@@ -91,6 +91,7 @@ func GetMetrics(c *gin.Context) {
 	if metricsName != "" {
 		result, err := getSpecificMetric(familyMap, metricsName)
 		if err != nil {
+			// This path should now be less common with zero-value defaults
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
@@ -109,7 +110,32 @@ func getSpecificMetric(familyMap map[string]*dto.MetricFamily, metricsName strin
 
 	mf, ok := familyMap[baseName]
 	if !ok {
-		return nil, fmt.Errorf("metric '%s' not found", baseName)
+		// Metric family not found. Instead of returning a 404 error,
+		// we generate a sensible zero-value response. This gives a better
+		// user experience for metrics that have not been observed yet.
+		getLogger().Debug("metric family not found, returning zero value", zap.String("metric", metricsName))
+
+		// The response structure depends on the requested component (suffix).
+		switch suffix {
+		case "_bucket":
+			// For a request for buckets of a non-existent histogram, return an empty list of buckets.
+			// We assume no labels, so we return a single object representing the value.
+			return gin.H{"value": []gin.H{}}, nil
+		case "_sum", "_count":
+			// For a sum or count of a non-existent metric, 0.0 is the correct value.
+			// We assume no labels and return a single value object.
+			return gin.H{"value": 0.0}, nil
+		case "":
+			// This is the most common case for a missing metric (e.g., a counter that hasn't been incremented).
+			// It could also be a request for a full histogram/summary object.
+			// Without knowing the metric type, returning a simple scalar zero is the most
+			// reasonable and broadly applicable default.
+			return gin.H{"value": 0.0}, nil
+		default:
+			// This case should not be reached due to the implementation of parseMetricName,
+			// but as a fallback, we return a simple zero.
+			return gin.H{"value": 0.0}, nil
+		}
 	}
 
 	results := []gin.H{}
