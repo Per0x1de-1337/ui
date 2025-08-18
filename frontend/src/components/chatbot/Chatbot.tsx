@@ -1,63 +1,71 @@
-import Chatbot from 'react-chatbot-kit';
-import 'react-chatbot-kit/build/main.css';
-import config from './config';
-import MessageParser from './MessageParser';
-import ActionProvider from './ActionProvider';
-import { Close as CloseIcon } from '@mui/icons-material';
+import React, { useState } from 'react';
+import BaseChatbot from 'react-chatbot-kit';
+// import 'react-chatbot-kit/build/main.css';
 import './Chatbot.css';
-import useTheme from '../../stores/themeStore';
-import { useEffect } from 'react';
 
-interface ChatbotComponentProps {
+import config from './config.tsx';
+import ActionProvider from './ActionProvider';
+import MessageParser from './MessageParser';
+import CustomHeader from './components/CustomHeader';
+import { IChatMessage } from './types';
+
+interface ChatbotProps {
   onClose: () => void;
 }
 
-const ChatbotComponent = ({ onClose }: ChatbotComponentProps) => {
-  const theme = useTheme(state => state.theme);
+const Chatbot: React.FC<ChatbotProps> = ({ onClose }) => {
+  const [isFullScreen, setIsFullScreen] = useState(false);
 
-  useEffect(() => {
-    // Apply theme classes to chatbot elements
-    const applyThemeToElements = () => {
-      const elements = [
-        '.react-chatbot-kit-chat-container',
-        '.react-chatbot-kit-chat-header',
-        '.react-chatbot-kit-chat-input-form',
-        '.react-chatbot-kit-chat-input',
-        '.react-chatbot-kit-chat-btn-send',
-        '.react-chatbot-kit-chat-message-container',
-        '.react-chatbot-kit-bot-message',
-        '.react-chatbot-kit-user-message',
-      ];
+  const toggleFullScreen = () => setIsFullScreen(prev => !prev);
 
-      elements.forEach(selector => {
-        const element = document.querySelector(selector);
-        if (element) {
-          element.classList.remove('light', 'dark');
-          element.classList.add(theme);
-        }
-      });
-    };
+  const chatbotConfig = {
+    ...config,
+    customComponents: {
+      ...config.customComponents,
+      header: () => (
+        <CustomHeader
+          toggleFullScreen={toggleFullScreen}
+          isFullScreen={isFullScreen}
+          onClose={onClose}
+        />
+      ),
+    },
+  };
 
-    applyThemeToElements();
+  const saveMessages = (messages: IChatMessage[]): void => {
+    localStorage.setItem('chatbot_messages', JSON.stringify(messages));
+  };
 
-    const timer = setTimeout(applyThemeToElements, 100);
+  const loadMessages = (): IChatMessage[] => {
+    const messagesJSON = localStorage.getItem('chatbot_messages');
+    if (!messagesJSON) return [];
 
-    return () => clearTimeout(timer);
-  }, [theme]);
+    try {
+      const parsedMessages = JSON.parse(messagesJSON);
+      return Array.isArray(parsedMessages) ? parsedMessages : [];
+    } catch (e) {
+      console.error('Failed to parse messages from localStorage', e);
+      return [];
+    }
+  };
+
+  const containerClasses = isFullScreen
+    ? 'chatbot-main-container fullscreen'
+    : 'chatbot-main-container';
 
   return (
-    <div className={`chatbot-container ${theme === 'dark' ? 'dark' : 'light'}`}>
-      <div className="chatbot-header">
-        <button
-          className={`chatbot-close-button ${theme === 'dark' ? 'dark' : 'light'}`}
-          onClick={onClose}
-        >
-          <CloseIcon />
-        </button>
+    <div className={containerClasses}>
+      <div className="chatbot-container">
+        <BaseChatbot
+          config={chatbotConfig}
+          messageHistory={loadMessages()}
+          saveMessages={saveMessages}
+          messageParser={MessageParser}
+          actionProvider={ActionProvider}
+        />
       </div>
-      <Chatbot config={config} messageParser={MessageParser} actionProvider={ActionProvider} />
     </div>
   );
 };
 
-export default ChatbotComponent;
+export default Chatbot;

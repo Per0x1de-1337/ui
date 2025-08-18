@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import ChatbotComponent from './Chatbot';
+import Chatbot from './Chatbot';
 import './ChatbotLauncher.css';
 import { Chat as ChatIcon } from '@mui/icons-material';
 import useTheme from '../../stores/themeStore';
@@ -18,7 +18,7 @@ const ChatbotLauncher = () => {
 
   return (
     <div>
-      {isOpen && <ChatbotComponent onClose={closeChatbot} />}
+      {isOpen && <Chatbot onClose={closeChatbot} />}
       {!isOpen && (
         <button
           className={`chatbot-launcher ${theme === 'dark' ? 'dark' : 'light'}`}

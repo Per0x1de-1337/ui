@@ -4,6 +4,7 @@ import Header from './Header';
 import useTheme from '../stores/themeStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import getThemeStyles from '../lib/theme-utils';
+import ChatbotLauncher from './chatbot/ChatbotLauncher';
 
 // Lazy load less critical components
 const Menu = lazy(() => import('./menu/Menu'));
@@ -278,6 +279,7 @@ export function Layout() {
 
       {/* Enhanced scroll to top button */}
       <ScrollToTop />
+      <ChatbotLauncher />
     </div>
   );
 }
